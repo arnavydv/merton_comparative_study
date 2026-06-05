@@ -9,6 +9,8 @@ data=data.dropna()
 data=data[1:]
 data=pd.to_numeric(data["Close"])
 log_returns = np.log(data/data.shift(1))
-log_returns=log_returns.mean()
-mu=log_returns*252
-print(mu)
+log_returns_mean=log_returns.mean()
+mu=log_returns_mean*confi["Time"]
+sigma=log_returns.std()
+sigma_annual=sigma*(np.sqrt(confi["Time"]))
+
