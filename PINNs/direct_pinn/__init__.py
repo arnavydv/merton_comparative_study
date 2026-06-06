@@ -1,1 +1,0 @@
-"""Direct V(t,w) PINN - no phi-factorization."""
