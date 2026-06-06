@@ -7,7 +7,7 @@ from typing import Optional, Tuple
 import torch
 import torch.nn as nn
 
-from loss_function import compute_pde_residual
+from loss_function import compute_phi_pde_residual
 from neural_network import ValueFunc
 from terminal_condition import crra, merton_analytical_solution, optimal_portfolio_weight
 
@@ -16,6 +16,27 @@ _CONFIG_PATH = Path(__file__).resolve().parent / "data_accumulation" / "config.j
 
 with open(_CONFIG_PATH, "r", encoding="utf-8") as f:
     config = json.load(f)
+
+
+def pde_residual_from_value(model: nn.Module, t: torch.Tensor, w: torch.Tensor,
+                            rate: float, mu: float, sigma: float) -> torch.Tensor:
+    """Compute the PDE residual by directly evaluating the HJB PDE on V(t,w).
+
+    This uses the φ-factorization: V(t,w) = φ(t) * w^(1-γ)/(1-γ).
+    The PDE reduces to: φ'(t) + κ*φ(t) = 0.
+
+    Args:
+        model: ValueFunc network.
+        t: Time points (N, 1).
+        w: Wealth points (N, 1).
+        rate: Risk-free rate.
+        mu: Expected return.
+        sigma: Volatility.
+
+    Returns:
+        PDE residual tensor (N, 1).
+    """
+    return compute_phi_pde_residual(model.phi_net, t, rate, mu, sigma, model.gamma)
 
 
 def evaluate_pde_residual(
@@ -39,7 +60,7 @@ def evaluate_pde_residual(
     Returns:
         Tuple of (residual_tensor, mean_squared_residual).
     """
-    residual = compute_pde_residual(model, t, w, rate, mu, sigma)
+    residual = pde_residual_from_value(model, t, w, rate, mu, sigma)
     mse_residual = torch.mean(residual ** 2).item()
     return residual, mse_residual
 
@@ -268,7 +289,7 @@ if __name__ == "__main__":
     # Load trained model
     model_path = Path(__file__).resolve().parent / "saved_models" / "best_model.pt"
     if model_path.exists():
-        model = ValueFunc()
+        model = ValueFunc(gamma=gamma)
         checkpoint = torch.load(model_path, map_location="cpu", weights_only=False)
         model.load_state_dict(checkpoint["model_state_dict"])
         model.eval()

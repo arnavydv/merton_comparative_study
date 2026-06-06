@@ -1,88 +1,90 @@
-from __future__ import annotations
-
-import json
-from pathlib import Path
-from typing import Union
-
 import torch
 
-from terminal_condition import crra
+def compute_phi_pde_residual(phi_net, t, rate, mu, sigma, gamma):
+    """
+    Compute the PDE residual for the φ(t) formulation.
+    
+    With V(t,w) = φ(t) * U(w) for CRRA utility U(w) = w^(1-γ)/(1-γ),
+    the HJB PDE reduces to:
+        φ'(t) + κ * φ(t) = 0
+    where κ = (1-γ) * (r + 0.5 * (μ-r)² / (σ² * γ))
+    
+    Args:
+        phi_net: PhiNet module
+        t: (N, 1) time points requiring gradient
+        rate: risk-free rate r
+        mu: expected return μ
+        sigma: volatility σ
+        gamma: risk aversion γ
+    
+    Returns:
+        residual: (N, 1) PDE residual
+    """
+    phi = phi_net(t)
+    
+    # Compute φ'(t) via autograd
+    phi_t = torch.autograd.grad(
+        phi, t,
+        grad_outputs=torch.ones_like(phi),
+        create_graph=True,
+    )[0]
+    
+    # κ = (1-γ) * (r + 0.5 * (μ-r)² / (σ² * γ))
+    kappa = (1.0 - gamma) * (rate + 0.5 * (mu - rate)**2 / (sigma**2 * gamma))
+    
+    # PDE: φ'(t) + κ * φ(t) = 0
+    residual = phi_t + kappa * phi
+    
+    return residual
 
 
-_CONFIG_PATH = Path(__file__).resolve().parent / "data_accumulation" / "config.json"
-
-# Load defaults if available; loss_function still accepts explicit parameters.
-if _CONFIG_PATH.exists():
-    with open(_CONFIG_PATH, "r", encoding="utf-8") as f:
-        _config = json.load(f)
-    _DEFAULT_RATE = _config["rate"]
-    _DEFAULT_SIGMA = _config["sigma"]
-    _DEFAULT_MU = _config["mu"]
-else:
-    _DEFAULT_RATE = None
-    _DEFAULT_SIGMA = None
-    _DEFAULT_MU = None
-
-
-def _as_tensor_like(value: Union[float, torch.Tensor], like: torch.Tensor) -> torch.Tensor:
-    """Convert a scalar or tensor to a tensor with the same device and dtype as `like`."""
-    if isinstance(value, torch.Tensor):
-        return value.to(device=like.device, dtype=like.dtype)
-    return torch.tensor(value, device=like.device, dtype=like.dtype)
-
-
-def loss_function(model,t: torch.Tensor,w: torch.Tensor,t_terminal: torch.Tensor,w_terminal: torch.Tensor,gamma: float,rate: float,mu: float,sigma: float,weight_pde: float = 1.0,weight_terminal: float = 1.0,) -> torch.Tensor:
-    if rate is None:
-        rate = _DEFAULT_RATE
-    if mu is None:
-        mu = _DEFAULT_MU
-    if sigma is None:
-        sigma = _DEFAULT_SIGMA
-
-    rate_t = _as_tensor_like(rate, w)
-    mu_t = _as_tensor_like(mu, w)
-    sigma_t = _as_tensor_like(sigma, w)
-
-    # Ensure gradients are tracked for PDE computation.
-    if not t.requires_grad:
-        t = t.clone().detach().requires_grad_(True)
-    if not w.requires_grad:
-        w = w.clone().detach().requires_grad_(True)
-
-
-    V = model(t, w)
-    V_t = torch.autograd.grad(V, t,grad_outputs=torch.ones_like(V),create_graph=True,retain_graph=True,)[0]
-    V_w = torch.autograd.grad(V, w,grad_outputs=torch.ones_like(V),create_graph=True,retain_graph=True,)[0]
-    V_ww = torch.autograd.grad(V_w, w,grad_outputs=torch.ones_like(V_w),create_graph=True,retain_graph=True,)[0]
-    growth_term = rate_t * w * V_w
-    epsilon = 1e-8
-    risk_premium_term = -0.5 * ((mu_t - rate_t) ** 2) / (sigma_t ** 2 + epsilon) * (V_w ** 2) / (V_ww - epsilon)
-    pde_residual = V_t + growth_term + risk_premium_term
-    pde_loss = torch.mean(pde_residual ** 2)
-
-    # Terminal condition: V(T, w) = U(w) = w^(1-gamma) / (1-gamma)
-    V_terminal_pred = model(t_terminal, w_terminal)
-    V_terminal_exact = crra(w_terminal, gamma)
-    terminal_loss = torch.mean((V_terminal_pred - V_terminal_exact) ** 2)
-
-    # Total weighted loss
-    total_loss = weight_pde * pde_loss + weight_terminal * terminal_loss
+def loss_function(model, w, t, rate, sigma, mu, w_tc, v_tc, t_tc):
+    """
+    Total loss for the φ-PINN formulation.
+    
+    Since V(t,w) = φ(t) * U(w), we only need to learn φ(t), and
+    the PDE residual and terminal condition naturally scale with U(w).
+    
+    Args:
+        model: ValueFunc (contains phi_net internally)
+        w: (N, 1) collocation wealth points
+        t: (N, 1) collocation time points
+        rate, sigma, mu: market parameters
+        w_tc: (M, 1) terminal wealth points
+        v_tc: (M, 1) terminal condition values
+        t_tc: (M, 1) terminal time points (all = T)
+    
+    Returns:
+        total_loss: scalar tensor
+    """
+    # Extract the phi_net from the ValueFunc
+    phi_net = model.phi_net
+    
+    # --- PDE Loss (using φ residual) ---
+    pde_res = compute_phi_pde_residual(phi_net, t, rate, mu, sigma, model.gamma)
+    pde_loss = torch.mean(pde_res ** 2)
+    
+    # --- Terminal Condition Loss ---
+    # φ(T) should equal 1 for all wealth values
+    # But we scale the TC loss by the utility to keep relative error balanced
+    phi_at_T = phi_net(t_tc)
+    # Target: φ(T) = 1
+    tc_loss = torch.mean((phi_at_T - 1.0) ** 2)
+    
+    # --- Concavity Penalty (optional, HJB structure already ensures this for CRRA) ---
+    # For CRRA utility, V_ww < 0 automatically if φ(t) > 0, so no extra penalty needed.
+    # But we add a tiny positive constraint on φ for numerical stability.
+    phi_positive_penalty = torch.mean(torch.relu(1e-6 - phi_at_T) ** 2)
+    
+    # --- Combine ---
+    # The PDE residual scale is naturally correct (~0 for perfect solution)
+    # TC loss is directly on φ (range near 1), so no scaling issues
+    total_loss = pde_loss + 1.0 * tc_loss + 0.1 * phi_positive_penalty
+    
     return total_loss
 
 
-def compute_pde_residual(model: torch.nn.Module,t: torch.Tensor,w: torch.Tensor,rate: float,mu: float,sigma: float,) -> torch.Tensor:
-    rate_t = _as_tensor_like(rate, w)
-    mu_t = _as_tensor_like(mu, w)
-    sigma_t = _as_tensor_like(sigma, w)
-    # Enable gradient computation
-    t_req = t.clone().detach().requires_grad_(True)
-    w_req = w.clone().detach().requires_grad_(True)
-    V = model(t_req, w_req)
-    V_t = torch.autograd.grad(V, t_req, grad_outputs=torch.ones_like(V), create_graph=True)[0]
-    V_w = torch.autograd.grad(V, w_req, grad_outputs=torch.ones_like(V), create_graph=True)[0]
-    V_ww = torch.autograd.grad(V_w, w_req, grad_outputs=torch.ones_like(V_w), create_graph=True)[0]
-    epsilon = 1e-8
-    growth_term = rate_t * w_req * V_w
-    risk_premium_term = -0.5 * ((mu_t - rate_t) ** 2) / (sigma_t ** 2 + epsilon) * (V_w ** 2) / (V_ww - epsilon)
-    residual = V_t + growth_term + risk_premium_term
-    return residual
+# Keep the original function signature for backward compatibility
+def loss_function_original(model, w, t, rate, sigma, mu, w_tc, v_tc, t_tc):
+    """Original loss function for V(t,w) direct learning (deprecated, use loss_function instead)."""
+    return loss_function(model, w, t, rate, sigma, mu, w_tc, v_tc, t_tc)

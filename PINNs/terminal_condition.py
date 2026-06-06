@@ -1,55 +1,38 @@
-from __future__ import annotations
-
-import torch
+import torch 
 from scipy.stats import qmc
 
-
-def terminal_points(num_points: int,T: float,w_max: float,w_min: float,gamma: float,) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    if w_min <= 0:
-        raise ValueError("w_min must be positive for CRRA utility (log(0) is undefined)")
-    if num_points <= 0:
-        raise ValueError("num_points must be a positive integer")
-    # Generate Latin Hypercube samples for wealth
-    sampler = qmc.LatinHypercube(d=1)
-    samples = sampler.random(n=num_points)
-    scaled_samples = qmc.scale(samples, w_min, w_max)
-    # Create tensors
-    w_terminal = torch.tensor(scaled_samples, dtype=torch.float32)
-    t_terminal = torch.full((num_points, 1), T, dtype=torch.float32)
-    # Compute CRRA utility: U(w) = w^(1-gamma) / (1-gamma)
-    if gamma == 1.0:
-        v_terminal = torch.log(w_terminal)
-    else:
-        term = 1.0 - gamma
-        v_terminal = (w_terminal ** term) / term
-    return t_terminal, w_terminal, v_terminal
+def terminal_points(number_of_points,T,w_max,w_min,gamma):
+  sampler = qmc.LatinHypercube(d=1)
+  samples = sampler.random(number_of_points)
+  scaled_samples = qmc.scale(samples,w_min,w_max)
+  w_tc = torch.tensor(scaled_samples,dtype=torch.float32)
+  t_tc = torch.ones(number_of_points,1) * T
+  v_tc = (w_tc**(1-gamma))/(1-gamma)
+  w_tc.requires_grad = True
+  t_tc.requires_grad = True
+  return w_tc,t_tc,v_tc
 
 
-def crra(wealth: torch.Tensor, gamma: float) -> torch.Tensor:
+def crra(wealth, gamma):
+    """CRRA utility function U(w) = w^(1-gamma)/(1-gamma) for tensor inputs."""
     if gamma == 1.0:
         return torch.log(wealth)
     term = 1.0 - gamma
     return (wealth ** term) / term
 
-def merton_analytical_solution( t: torch.Tensor,w: torch.Tensor,T: float,gamma: float,rate: float,mu: float,sigma: float,) -> torch.Tensor:
-    """Compute the analytical solution to Merton's problem with CRRA utility.
-    The value function is:
-        V(t, w) = (w^(1-gamma) / (1-gamma)) * exp(A*(T-t))
-    where:
-        A = (1-gamma) * [r + ((mu-r)^2) / (2*sigma^2*gamma)]
-    Returns:
-        Analytical value function V(t, w).
+
+def optimal_portfolio_weight(gamma, rate, mu, sigma):
+    """Analytical optimal portfolio weight: pi* = (mu - r) / (gamma * sigma^2)."""
+    return (mu - rate) / (gamma * sigma**2)
+
+
+def merton_analytical_solution(t, w, T, gamma, rate, mu, sigma):
+    """Analytical solution to the Merton HJB PDE with CRRA utility.
+    
+    V(t,w) = (w^(1-gamma)/(1-gamma)) * exp(kappa * (T - t))
+    where kappa = (1-gamma) * (r + 0.5 * (mu-r)^2 / (sigma^2 * gamma))
     """
-    if gamma == 1.0:
-        # Log utility case
-        A = rate + ((mu - rate) ** 2) / (2 * sigma ** 2)
-        return torch.log(w) + A * (T - t)
-    else:
-        # Power utility case
-        A = (1 - gamma) * (rate + ((mu - rate) ** 2) / (2 * sigma ** 2 * gamma))
-        base = (w ** (1 - gamma)) / (1 - gamma)
-        return base * torch.exp(A * (T - t))
-
-
-def optimal_portfolio_weight(gamma: float,rate: float,mu: float,sigma: float,) -> float:
-    return (mu - rate) / (sigma ** 2 * gamma)
+    kappa = (1.0 - gamma) * (rate + 0.5 * (mu - rate)**2 / (sigma**2 * gamma))
+    term = 1.0 - gamma
+    u_w = (w ** term) / term
+    return u_w * torch.exp(kappa * (T - t))
