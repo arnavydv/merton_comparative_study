@@ -165,7 +165,26 @@ visualization.plot_training_diagnostics(
     mono_loss_history=checkpoint.get('mono_loss_history', [])
 )
 
+# --- Group A: Random Point Inference Diagnostics (Graphs 1-5) ---
+print("  Plotting pi* distribution & inference diagnostics (Graphs 1-5)...")
+
+# Graph #1: Histogram of predicted pi*
+visualization.plot_pi_histogram(pred_pi_np, exact_pi)
+
+# Graph #2: pi* vs Wealth (colored by time)
+visualization.plot_pi_vs_wealth(w_np, pred_pi_np, exact_pi, t_np)
+
+# Graph #3: pi* vs Time (colored by wealth)
+visualization.plot_pi_vs_time(t_np, pred_pi_np, exact_pi, w_np)
+
+# Graph #4: Predicted vs Exact scatter
+visualization.plot_predicted_vs_exact_scatter(pred_pi_np, exact_pi)
+
+# Graph #5: Error profile vs wealth
+visualization.plot_pi_error_profile(w_np, t_np, pred_pi_np, exact_pi)
+
 # B. Grid Evaluation for Surfaces
+print("  Building grid evaluation for surface plots (Graphs 6-8)...")
 t_steps, w_steps = 40, 40
 t_grid_1d = torch.linspace(0.01, T, t_steps, device=device)
 w_grid_1d = torch.linspace(0.5, 2.0, w_steps, device=device)
@@ -174,7 +193,7 @@ t_mesh_1d, w_mesh_1d = torch.meshgrid(t_grid_1d, w_grid_1d, indexing='ij')
 t_flat = t_mesh_1d.flatten().unsqueeze(1)
 w_flat = w_mesh_1d.flatten().unsqueeze(1)
 
-v_grid, _, _, pi_grid = compute_value_and_policy(
+v_grid, v_w_grid, v_ww_grid, pi_grid = compute_value_and_policy(
     model, w_flat, t_flat, torch.tensor(mu, device=device), 
     torch.tensor(rate, device=device), torch.tensor(sigma, device=device)
 )
@@ -182,23 +201,72 @@ v_grid, _, _, pi_grid = compute_value_and_policy(
 t_mesh_np = t_mesh_1d.cpu().numpy()
 w_mesh_np = w_mesh_1d.cpu().numpy()
 v_mesh_np = v_grid.detach().cpu().numpy().reshape(t_steps, w_steps)
+v_w_mesh_np = v_w_grid.detach().cpu().numpy().reshape(t_steps, w_steps)
+v_ww_mesh_np = v_ww_grid.detach().cpu().numpy().reshape(t_steps, w_steps)
 pi_mesh_np = pi_grid.detach().cpu().numpy().reshape(t_steps, w_steps)
+w_grid_2d_np = w_mesh_1d.detach().cpu().numpy()
 
-# Plot Value Function
+# Compute a representative learned pi* (mean over grid) for forward simulation comparisons
+learned_pi_rep = float(pi_grid.detach().cpu().numpy().mean())
+
+print(f"  Learned pi* (grid mean): {learned_pi_rep:.6f}")
+
+# Plot Value Function (existing)
 visualization.plot_value_function_surface(t_mesh_np, w_mesh_np, v_mesh_np, T=T)
 
-# Plot Policy Validation
+# Plot Policy Validation (existing)
 visualization.plot_policy_validation(t_mesh_np, w_mesh_np, pi_mesh_np, exact_pi, T=T)
 
-# C. Forward Simulation (using the exact analytical pi* for baseline stability)
-print("Running lightweight forward simulation...")
-time_grid_viz, W_viz, wealth_grid_viz = run_forward_simulation(
+# Graph #6: V_w surface
+visualization.plot_vw_surface(t_mesh_np, w_mesh_np, v_w_mesh_np)
+
+# Graph #7: Implied relative risk aversion
+visualization.plot_implied_risk_aversion(t_mesh_np, w_mesh_np, v_w_mesh_np, v_ww_mesh_np, w_grid_2d_np)
+
+# Graph #8: Signed error heatmap
+visualization.plot_signed_error_heatmap(t_mesh_np, w_mesh_np, pi_mesh_np, exact_pi)
+
+# C. Forward Simulation Comparisons
+print("  Running forward simulations for policy comparison (Graphs 9-10)...")
+
+# Use a fixed seed for reproducibility across the 3 forward runs
+torch.manual_seed(42)
+
+# Run exact pi* forward sim
+time_grid_viz_exact, W_viz_exact, wealth_grid_viz_exact = run_forward_simulation(
     mu=mu, sigma=sigma, w0=w0, rate=rate, T=T, 
     num_steps=num_steps, num_paths=500, pi_star_value=exact_pi
 )
-visualization.plot_forward_dynamics(time_grid_viz, W_viz, wealth_grid_viz, max_paths=50)
 
-# D. Financial Sensitivity
+# Run learned pi* forward sim
+time_grid_viz_learned, W_viz_learned, wealth_grid_viz_learned = run_forward_simulation(
+    mu=mu, sigma=sigma, w0=w0, rate=rate, T=T, 
+    num_steps=num_steps, num_paths=500, pi_star_value=learned_pi_rep
+)
+
+# Run risk-free (pi=0) forward sim
+time_grid_viz_rf, W_viz_rf, wealth_grid_viz_rf = run_forward_simulation(
+    mu=mu, sigma=sigma, w0=w0, rate=rate, T=T, 
+    num_steps=num_steps, num_paths=500, pi_star_value=0.0
+)
+
+# Existing forward dynamics plot (using exact pi*)
+visualization.plot_forward_dynamics(time_grid_viz_exact, W_viz_exact, wealth_grid_viz_exact, max_paths=50)
+
+# Graph #9: Wealth comparison across policies
+visualization.plot_wealth_comparison(
+    time_grid_viz_exact, wealth_grid_viz_exact, 
+    wealth_grid_viz_learned, wealth_grid_viz_rf, max_paths=30
+)
+
+# Graph #10: Terminal wealth vs pi* sweep
+visualization.plot_terminal_wealth_vs_pi_sweep(
+    mu=mu, sigma=sigma, w0=w0, rate=rate, T=T, 
+    num_steps=num_steps, num_paths=500, 
+    learned_pi=learned_pi_rep, exact_pi=exact_pi
+)
+
+# D. Financial Sensitivity (existing)
 visualization.plot_financial_sensitivity(mu=mu, r=rate, base_gamma=gamma, base_sigma=sigma)
 
 print("\n✅ Evaluation complete.")
