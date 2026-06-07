@@ -11,6 +11,10 @@ class VanillaPINN(nn.Module):
             nn.Tanh(),
             nn.Linear(128, 128),
             nn.Tanh(),
+            nn.Linear(128,128),
+            nn.Tanh(),
+            nn.Linear(128,128),
+            nn.Tanh(),
             nn.Linear(128, 1)
         )
     def forward(self, w, t):
