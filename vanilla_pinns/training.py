@@ -115,7 +115,7 @@ lbfgs_optimizer = torch.optim.LBFGS(
     line_search_fn="strong_wolfe" # Standard requirement to preserve PINN stability
 )
 
-lbfgs_epochs = 200
+lbfgs_epochs = 1000
 
 for l_epoch in range(lbfgs_epochs):
     model.train()

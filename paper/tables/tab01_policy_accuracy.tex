@@ -1,0 +1,14 @@
+\begin{table}[ht]
+\centering
+\caption{Optimal policy π* accuracy metrics for all methods.}
+\label{tab:policy_accuracy}
+\begin{tabular}{lccccc}
+\toprule
+Method & MAE & RMSE & Rel L2 & Rel L∞ & Max Err \\
+\midrule
+FDM & 2.102007e-04 & 2.102007e-04 & 4.197008e-04 & 4.197008e-04 & 2.102007e-04 \\
+PINN & 2.326593e-01 & 3.288086e+00 & 6.565212e+00 & 6.470672e+02 & 3.240737e+02 \\
+BSDE & 3.461883e-03 & 6.330814e-03 & 1.264053e-02 & 6.514833e-02 & 3.262854e-02 \\
+\bottomrule
+\end{tabular}
+\end{table}
