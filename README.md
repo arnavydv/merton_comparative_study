@@ -1,4 +1,4 @@
-# Merton Portfolio Problem — Comparative Study of FDM, PINN, and Deep BSDE
+# Merton Portfolio Problem — Comparative Study of FDM, PINN, and Deep BSDE Methods
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
