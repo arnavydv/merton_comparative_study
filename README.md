@@ -79,7 +79,7 @@ $$
 The **Hamilton–Jacobi–Bellman (HJB) equation** for the value function `V(t, W)` is:
 
 $$
-\frac{\partial V}{\partial t} + \max_{\pi} \Bigl\{ \bigl[r + \pi(\mu - r)\bigr] W \frac{\partial V}{\partial W} + \frac{1}{2} \pi^2 \sigma^2 W^2 \frac{\partial^2 V}{\partial W^2} \Bigr\} = 0
+\frac{\partial V}{\partial t} + \max_{\pi} \left\{ \bigl[r + \pi(\mu - r)\bigr] W \frac{\partial V}{\partial W} + \frac{1}{2} \pi^2 \sigma^2 W^2 \frac{\partial^2 V}{\partial W^2} \right\} = 0
 $$
 
 **Terminal condition:**
