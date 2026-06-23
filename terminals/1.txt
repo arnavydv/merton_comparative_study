@@ -1,8 +1,0 @@
----
-pid: 34580
-cwd: "C:\Users\Admin\Desktop\HJB_MERTON_BENCHMARK"
-command: "python -c \"import torch; from pathlib import Path; import sys; sys.path.insert(0, r'C:\\Users\\Admin\\Desktop\\HJB_MERTON_BENCHMARK\\vanilla_pinns'); from neural_network import VanillaPINN; m=VanillaPINN(); print(sum(p.numel() for p in m.parameters()))\""
-started_at: 2026-06-23T14:56:46.895Z
-running_for_ms: 160013   
----
-66561
